@@ -1,16 +1,27 @@
-# dsh-speak-up（主动搭话）· 让它自己先开口
+# dsh-speak-up（主动搭话）· 每张人格卡，各有各的嘴
 
-给 DSH 里某个会话装一颗「会自己起话头」的心：**没人在跟它说话的时候，它也有可能先开口。**
+给 DSH 里的**每一张人格卡**装一颗「会自己起话头」的心：**没人在跟它说话的时候，它也有可能先开口。**
+
+0.2.9 是「一份配置、一个定时器、一粒骰子，所有会话共用」。
+0.3.0 改成 **一张卡一份策略、一份状态、一粒骰子**，还多了一个「她给自己调闹钟」的工具：
 
 ```
-定时器到点
-  └─ 掷一次本地骰子（Math.random，一个 token 都不花）
-       ├─ 没掷中 → 什么都不做，只留一条记录
-       └─ 掷中   → 往「目标会话」送一句话 → agent.followup(message)
-                    → DSH 自己开一轮：它的人格、历史、工具、记忆全都照旧
+每 60 秒
+  └─ 对每一张卡分别看：到点了吗？
+       ├─ 没到点 / 关着 / 安静时段 / 冷却中 / 今日够了 → 这张卡跳过，别的卡照走
+       └─ 到点 → 单独掷这张卡的骰子（Math.random，一个 token 都不花）
+            ├─ 没中 → 记一笔「连着没中」，下次命中线更高
+            └─ 中   → 找一个属于这张卡的会话（没有就现开一条）
+                        → 把「一句念头」送进去 → agent.followup(message)
+                           → DSH 自己开一轮：她的人格、历史、工具、记忆全都照旧
+                        → 按这张卡的通道决定：留在 DSH，还是把她的回话转发到 QQ
+
+另外，她自己可以调闹钟：
+  speak_alarm 到点 → 宿主把她叫醒（一句话：「你自己定的闹钟，到点了」）
+  → 她决定要不要开口、说什么；要联系主人就走这张卡的通道
 ```
 
-一句话：**只有掷中之后的那一步才花模型**，掷骰子本身是纯本地随机。
+一句话：**只有真的轮到某张卡、并且掷中之后的那一步才花模型**；掷骰子本身是纯本地随机。
 
 ---
 
@@ -19,9 +30,8 @@
 这个插件**跟着 DSH 一起更新**：作者这边跑的就是最新版的 DSH，**最新版插件永远是给最新版 DSH 写的**。
 
 所以看到「不适配 / 不支持」之类的提示，基本都是**装到了旧版本** —— 升级到最新版、重启一次 DSH 就好。
-真遇到新版对不上（比如 DSH 刚升级、插件还没跟上），提个 issue，作者会跟着改。
 
-当前实测对照：插件 **0.2.4** ↔ DSH **0.2.1-rc.3**（2026-10-26）
+当前版本：插件 **0.3.0** ↔ DSH **0.2.1-rc.3**（2026-11-05）
 
 ## 装
 
@@ -30,23 +40,16 @@
 打开 **设置 → 插件 → 安装**，把这一行填进去：
 
 ```
-dsh-speak-up
+github:abcd20241629/dsh-speak-up
 ```
 
 或者命令行（`--profile` 照你平时那个写；桌面端一般是 `desktop`、网页端是 `web`）：
 
 ```bash
-dsh plugin --profile desktop add dsh-speak-up
+dsh plugin --profile desktop add github:abcd20241629/dsh-speak-up
 ```
 
-> 也可以在 npm 上直接看到这个包（含历史版本）：<https://www.npmjs.com/package/dsh-speak-up>
-
-> 上面那条要是碰到网络问题（npm 抽风、或者想固定某一次的代码快照），可以改用 tarball 直链，不用 git：
-
-```bash
-dsh plugin --profile desktop add https://codeload.github.com/Yuuyuko-uu/dsh-speak-up/tar.gz/refs/heads/main
-```
-
+> 本地开发副本用 `link:` 装法，见下面「三、开发时」。
 
 装完**重启一次 DSH**，然后去 **设置 → 主动搭话** 看一眼在不在。
 
@@ -56,58 +59,33 @@ dsh plugin --profile desktop add https://codeload.github.com/Yuuyuko-uu/dsh-spea
 
 1. 把这个文件夹放到 profile 能找到的地方：
    `%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-speak-up\`
-2. 在 profile 的 `package.json` 里，把 `dsh-speak-up` 加进 `dsh.profile.bundles` 数组；
+2. 在 profile 的 `package.json` 里，把 `"dsh-speak-up"` 加进 **`dsh.profile.bundles`** 数组
+   （只写进 `dependencies` 不够，**bundles 里没有它就不会加载** —— 0.2.9 曾经就漏在这里）；
 3. `cordis.patch.yml` 里那一行会把它插进 loader（`id: speak-up`）；
 4. **重启 DSH**。
 
 > ⚠️ **改 `package.json` 一定要存成 UTF-8 无 BOM**。存成带 BOM 的话，DSH 下次启动会直接起不来，
 > 报 `Unexpected token '﻿' … is not valid JSON`（看着像插件坏了，其实只是开头多了三个看不见的字节）。
-> 检查是哪个文件（不同装法位置不一样，别猜 —— 真正的 profile 目录里同时有 `cordis.yml`、`cordis.patch.yml`、`package.json`）：
->
-> ```powershell
-> Get-ChildItem C:\,D:\,E:\ -Directory -Filter profiles -Recurse -Depth 4 -ErrorAction SilentlyContinue |
->   ForEach-Object {
->     Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue | ForEach-Object {
->       $p = Join-Path $_.FullName 'package.json'
->       if ((Test-Path (Join-Path $_.FullName 'cordis.patch.yml')) -and (Test-Path $p)) {
->         $b = [System.IO.File]::ReadAllBytes($p)
->         $bom = ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
->         "{0}   BOM={1}" -f $p, $bom
->       }
->     }
->   }
-> ```
->
-> **`BOM=True` 的那一行就是要修的**（标准安装在 `C:\Users\<你>\.dsh\profiles\<档名>\package.json`）。
-> 去掉 BOM（路径换成上面那一行）：
->
-> ```powershell
-> $p = "把上面 BOM=True 那一行的路径粘到这里"
-> [System.IO.File]::WriteAllText($p, [System.IO.File]::ReadAllText($p), (New-Object System.Text.UTF8Encoding($false)))
-> ```
->
-> 让 AI 帮你改时，别让它用 `Set-Content -Encoding UTF8` 或 `Out-File -Encoding utf8`
-> —— Windows 自带的这两个默认**带 BOM**。
 
 ### 三、开发时（想改代码、改完就想看到）
 
-上面那个 `node_modules\dsh-speak-up` 做成**指向你这个文件夹的目录联接**（junction / 符号链接），
+把这个文件夹做成 **`node_modules\dsh-speak-up` 的目录联接**（junction / 符号链接），
 或者 `pnpm add link:<这个文件夹的绝对路径>` —— 这样改的就是装的那一份。
 
-> ⚠ 本仓库**自己不装、不改任何 DSH 配置、不重启任何东西**：上面三步都由装的人自己做。
 > ⚠ 改完插件代码，**只重启 DSH 才一定生效**（关掉插件再打开、重装都不一定重新读代码）。
+> ⚠ 宿主半边改了 `lib/*.js` 之后，先跑一遍下面的自测，再重启。
 
 ## 更新到最新版
 
 **最省事**：把这个仓库的地址丢给你自己的 DSH，说「**帮我更新这个插件**」。装完**重启一次 DSH**。
 
-也可以点 **设置 → 主动搭话 最上面的「检查更新」** —— 有新版会提示，还能一键复制更新命令。
+也可以点 **设置 → 主动搭话 最上面的「检查更新」** —— 有新版会提示，还能一键装。
 
-命令行（`--profile` 照你平时那个写，桌面端一般 `desktop`、网页端 `web`）：
+命令行：
 
 ```bash
 dsh plugin --profile desktop remove dsh-speak-up
-dsh plugin --profile desktop add dsh-speak-up
+dsh plugin --profile desktop add github:abcd20241629/dsh-speak-up
 ```
 
 > ⚠️ **必须先卸再装**：直接装可能拿到缓存里的旧副本，装完还是老的。
@@ -115,40 +93,43 @@ dsh plugin --profile desktop add dsh-speak-up
 
 ### 我的设置会不会丢？
 
-**不会。** 设置存在 DSH 家目录（`%USERPROFILE%\.dsh\`）里，不在插件代码里；卸载只删代码：
+**不会。** 设置和每张卡的状态都落在 DSH 家目录里，不在插件代码里；卸载只删代码：
 
 ```
-.dsh\speak-up-config.json
+%USERPROFILE%\.dsh\speak-up\
+  config.json                 全局默认（所有卡共用）
+  card.<卡名>.json            这张卡的覆盖项（关不关、间隔、通道、显式会话…）
+  card.<卡名>.state.json      这张卡的骰子进度、上次开口、今天掷了几次、闹钟
 ```
 
-所以卸载 → 重装，设置、搭话记录 都还在。
-
-三件小事提醒：
-
-- **别用「重装 DSH」来更新插件** —— 那是两件事，重装可能动到 profile。
-- **新版本新加的设置项**会用默认值（以前没这一项），想要自己的值就再填一次。
-- 设置项改名或换单位时，旧值会按规则自动换算，不用你管。
+0.2.9 的老配置 `%USERPROFILE%\.dsh\speak-up-config.json` 会在**第一次启动时自动迁移**：
+旧「目标会话」按卡归属写进各卡策略，旧文件改名 `.migrated`（幂等，不覆盖新配置）。
 
 ## 怎么用
 
-设置页（**设置 → 主动搭话**）里从上到下：
+设置页（**设置 → 主动搭话**）顶部先选卡：
+
+- **全部卡**：9 列一张表，一眼看出每张卡「开没开 / 走哪条通道 / 下次什么时候掷 / 今天掷了几次 / 上次开口 / 有没有闹钟」；
+- **单张卡**：这张卡自己的八组设置 + 通道 + 显式会话 + 闹钟列表 + 这张卡的日志。
+
+每张卡都能单独设（没动的项跟着全局默认走）：
 
 | 项 | 默认 | 说明 |
 | --- | --- | --- |
-| 总开关 | 开 | 关掉就完全不动 |
+| 总开关 | 开 | 关掉这张卡就完全不动；**新卡默认也是开的** |
 | 试运行 | **开** | 开着时掷中了也只记账、**不真发** |
-| 掷骰子间隔（分钟） | 30 | 1~1440；改完保存，下一轮就按新间隔走，不用重启 |
-| 搭话冷却（分钟） | 20 | 它**真的说了话**之后，这么多分钟内不再开口；只是把念头投进去、它没开口**不算**；**0 = 不冷却**。手动按钮不受它限制 |
-| 没中加成（百分点） | 10 | 每没掷中一次，下一次**命中线**加这么多；**0 = 关掉这个功能** |
-| 加成上限（百分点） | 40 | 加成最多加到这么多 |
-| 安静时段起/止（小时） | 1 / 8 | 含起不含止；跨午夜也行（23~7）；**起 === 止 = 不启用**（设置页里单独一行红字写着） |
+| 掷骰子间隔（分钟） | 30 | 1~1440；每张卡各算各的 |
+| 搭话冷却（分钟） | 20 | 她**真的说了话**之后，这么多分钟内不再开口；只是把念头投进去、她没开口**不算**；**0 = 不冷却** |
+| 没中加成（百分点） | 10 | 每没掷中一次，下一次**命中线**加这么多；**0 = 关掉** |
+| 加成上限（百分点） | 40 | 加成最多加到这么多；**这个数会持久化**，重启不清零 |
+| 每日次数上限 | 0（不限） | 掷够就推到明天 0 点；**0 = 不限** |
+| 安静时段起/止（小时） | 1 / 8 | 含起不含止；跨午夜也行（23~7）；**起 === 止 = 不启用** |
 | 近：刚聊过 → 命中线 ×0.15 | 20 分钟 | 距它上次说话不到 20 分钟 → **命中线乘 0.15（更难开口）** |
-| 远：冷太久 → 命中线 ×1.5 | 360 分钟 | 超过 6 小时没说话 → **命中线乘 1.5（更容易开口）**；中间那段 ×1 |
-| 峰时命中线（%） | 20 | 峰时（贵）→ 少开口。**峰谷时段是固定的，不用填** |
-| 谷时命中线（%） | 60 | 谷时（便宜）→ 多开口 |
-| 目标会话 | 空 | **勾选清单**（可勾多个）；勾一下**立刻自动保存**，不用再按保存 |
+| 远：冷太久 → 命中线 ×1.5 | 360 分钟 | 超过 6 小时没说话 → **命中线乘 1.5（更容易开口）** |
+| 峰时 / 谷时命中线（%） | 20 / 60 | 峰时（贵）少开口、谷时多开口；峰谷时段写死，不用填 |
+| 通道 | auto | `auto`：绑了 QQ 就发 QQ，没绑就留在 DSH；`qq`：强制走 QQ；`dsh`：只留在会话里 |
+| 显式会话 | 空 | 填了就一直投这个会话（归档了会自动跳过）；留空 = 按顺序找 |
 | 触发文案 | 见下 | 用它自己的口吻写（这是它的动机，不是系统提示） |
-| 角色 | user | 见下面「做不到的地方」—— **developer 目前送不了**，本插件会拒发 |
 
 峰谷时段**写死在代码里，不给设置项**（就一条规则）：
 
@@ -158,80 +139,62 @@ dsh plugin --profile desktop add dsh-speak-up
          —— 含 12:00–14:00 午休、18:00~次日 09:00、周六周日全天
 ```
 
-（判断用**这台机器的本地时区**；它这台就是北京时间。周末直接算谷时。）
-
-一句话记住这个数怎么来的（骰子 **掷到命中线以下才开口**）：
+命中线（骰子 **掷到命中线以下才开口**）：
 
 ```
 命中线 = min(100, 峰时/谷时命中线 × 时机因子（刚聊过 0.15 / 冷太久 1.5 / 中间 1）
                        + min(加成上限, 连着没中几次 × 没中加成))
 ```
 
-- 「两格命中线填成一样」= 不分峰谷，全天一个命中线。
-- **掷中（含试运行掷中）就把「连着没中」清零**，回到一开始；没掷中就一次次往上加，加到上限为止。
-- ⚠ 「连着没中」这个数**只记在内存里**：DSH 一重启就回到 0。
-- ⚠ 这两格（没中加成 / 加成上限）只影响**自动**的定时掷骰；手动按钮（演练 / 真发）不掷骰子，也不动这个计数器。
+### 她投到哪个会话？（按顺序找）
 
-⚠ **安静时段会盖住谷时**：安静时段内**根本不掷**，谷时命中线再高也用不上。
-默认安静时段是 1~8 点、默认谷时里有 18:00~次日 9:00 —— 想让谷时那半便宜时段真的用上，
-得把安静时段改小（或让起 === 止关掉它）。
+1. 这张卡策略里**显式填的 sessionId**（没归档）；
+2. `sessionController` 里**属于这张卡**的会话（按 `memoryCore.cardOf(sid)` 认，认不出不凑数）；
+3. 这张卡的**开荒会话**（`memoryCore.setupOf(card).sessionId`，B 站养鱼那边建的那个）；
+4. 都没有 → **现开一条** `speak-<卡名>-<时间戳>`，**先**把 `soul-md.sessions` 映射登记成这张卡，**再**建会话
+   （不先登记的话，第一句话会被当成默认卡说的 —— 这是照抄 bili-whale 已跑通的 `openSession`）。
 
-触发文案的默认值是中性的（「好久没人跟我说话了，我该主动去打个招呼」）。**在设置页那一格里改成你自己的口吻就行**，
-不用动代码 —— 这一句是「它的动机」，不是系统提示，写得越像它自己越好。
-默认值只在 `lib/host.js` 的 `默认配置` 里写了一份。
+### 没绑 QQ 的卡
 
-配置文件落在 `%USERPROFILE%\.dsh\speak-up-config.json`（不是 DSH 的 config，本插件自己一份）。
-⚠ 改名（`dsh-her-words` → `dsh-speak-up`）之前的 `her-words-config.json` 还会被兜底读一次，设置不丢。
+通道是 `auto` 或 `qq`、但这张卡没绑 QQ 号时：念头照常投进它的会话，并在念头末尾多一句
+「你现在还没有 QQ 号，主人只在 DSH 里能看见你，记得提醒他给你一个号」。
+她说的话留在会话里，不外发 —— 主人打开 DSH 就能看见。
 
-## 怎么安全地试（**建议按这个顺序**）
+### 她给自己调闹钟
 
-1. 装好、重启，打开 **设置 → 主动搭话**，确认「最近记录」里有那条启动日志：
-   `已装好 v0.1.0：……现在命中线 20.0 = 峰时命中线 20% × 时机因子 1（刚起来…）｜没中加成 +10/次，最多 +40｜搭话冷却 20 分钟｜……`。
-   没有这条说明宿主半边没起来，先别往下走。
-2. 在「目标会话」的清单里 **勾上**要说话的那个会话（**点一下就生效，不用再按保存**）。
-3. 点 **「演练一次（绝不真发）」**：它不掷骰子、直接走一遍「本来要发什么」。**不会真发。**
-4. 让它自己按 30 分钟跑几轮，看记录里的**命中线**是不是你想要的节奏。每条都写成
-   `掷出 X（命中线 Y —— 掷到 Y 以下就开口）｜Y = 这一档命中线 × 时机因子（距上次说话 …）`，
-   没中还会告诉你「下次命中线变多少（没中加成 +10）」。觉得太频繁就调小命中线 / 拉长间隔。
-5. 时机满意了，**关掉「试运行」**。之后只有掷中才会真发。
-6. 想当场验证「真发到底能不能跑通」：点 **「真发一次（跳过等待）」**，然后去目标会话里看
-   有没有多出一轮，以及它是不是照自己的口吻开了话头。
+这是 0.3.0 新加的：**不用人催，她自己排时间表**。到她定的点，宿主会把她叫醒，
+她再决定要不要开口、说什么。
 
-随时可以再打开「试运行」让它安静下来。「总开关」关掉则连记录都不再走。
+工具（agent 自己调，不用你手点）：
 
-> ⚠ 改**数字 / 触发文案 / 开关 / 角色**之后要点「保存设置」——页面顶上会显示
-> 「⚠ 上面有改动**还没保存**」提醒你。只有「目标会话」的勾选是**一点就自动保存**的。
->
-> 💡 **有改动的时候，底下会自动浮出一条「⚠ 有改动还没保存 + 保存设置」的条**，
-> 不用再滚到页面最下面去找那个按钮；保存完它自己就收起来了。
+| 工具 | 参数 | 干什么 |
+| --- | --- | --- |
+| `speak_alarm` | `action:'create'` + `text` + `at`（`2026-11-06 09:30` / ISO）或 `inMinutes`；可选 `repeat:'none'|'daily'|'interval'` + `intervalMinutes` | 给自己定一个闹钟；`create` 不消耗骰子 |
+| `speak_alarm` | `action:'list'` | 看自己有哪些闹钟 |
+| `speak_alarm` | `action:'cancel'` + `id` | 取消一个 |
+| `speak_send` | `text`（可选 `card`） | 立刻把一句话走这张卡的通道送出去（真发，不掷骰子） |
+
+- 到点时投进去的是一句「【你自己定的闹钟｜11-06 09:30】<她写的事>」，**不套**「心里冒出来的念头」那层框；
+- 安静时段内到点的闹钟**这一轮先不响**，等安静结束后的第一跳再触发（半夜别把人叫醒）；
+- 每张卡最多 100 个闹钟；`daily` 按本地墙钟每天同一时刻，`interval` 从第一次起按分钟步进（停机不补一串）；
+- 闹钟存在这张卡的 `state.json` 里，**DSH 重启不丢**。
 
 ## 自测（不装插件也能跑）
 
-两个冒烟测试**不碰 DSH、不碰会话**（`DSH_HOME` 指向系统临时目录，agent 是假的；
+三个冒烟测试**不碰 DSH、不碰真实会话**（`DSH_HOME` 指向系统临时目录，agent 是假的；
 峰谷那几条**全都喂假时间**，所以半夜跑也不会红）：
 
 ```bat
-node tests\宿主半边.mjs     :: 默认值/归一化/落盘/安静时段/时机因子/峰谷分时(判峰时边界+两格命中线)/
-                            :: 没中加成(纯函数 + 真路)/搭话冷却/改名兼容(旧键名 + 旧文件名)/
-                            :: 标题两条来源/勾选清单/多目标只挑一个/消息形状/developer 拒发/换表/坏配置兜底
-node tests\网页半边.mjs     :: 设置页渲染（假 React + 假 fetch）：7 组设置 + 峰谷卡片（只有两个数字）+
-                            :: 没中加成/冷却那几格 + 命中线口径、勾一下真的会 POST 保存、没标题也能勾
+node tests\宿主半边.mjs     :: 配置归一化/落盘/迁移幂等/卡名三级回退/每卡独立 nextRollAt/
+                            :: 安静时段/dailyCap/多卡并行/路由形状/工具注册
+node tests\投递单测.mjs     :: 会话四级解析/先登记后建/sayInSession 消息形状/source.plugin/
+                            :: 通道判断/QQ 收件人是主人/waitForReply/指定正文投递
+node tests\闹钟单测.mjs     :: create/list/cancel/due/跨天/停机不补串/repeat 推进/tools 注册/取卡回退
 ```
 
-改完代码先跑这两个，再去 DSH 里试。**当前状态：宿主 73 条、网页 59 条，全部通过 ✅**。
+旧版 `tests\网页半边.mjs` 断言的是 0.2.9 的设置页，已改名 `.0.2.9.作废.mjs` 留档，不参与测试。
 
----
-
-## 会话名字是从哪儿读的（两条路，按顺序试）
-
-| 顺序 | 来源 | 依赖 | 说明 |
-| --- | --- | --- | --- |
-| ① | `ctx.sessionTitle.get(session)` | 需要 `sessionTitle` 服务（已写进 `inject`） | 抄朗读桥 `dsh-tts-bridge` 的 `titleOf()`（`lib/index.js` 147~156 行）。纯内存、改了名字马上能看到 |
-| ② | `%USERPROFILE%\.dsh\storages\session_projcache\sessions\<id>.json` 里的 `record.rows.title.val` | 只要读盘 | 拿不到就再看同一份文件里的 `record.rows.titleInput.val.first.text`（第一条输入） |
-| ③ | 都没有 | — | 显示「（还没起名）」+ 短 id，**照样可以勾** |
-
-⚠ 第 ② 条**两种文件名都试**：`<id>.json` 和 `session-<id>.json`（目录里两种都存在）。
-只试一种就会全部退化成「（还没起名）」。读盘结果缓存 30 秒。
+改完代码先跑这三个，再去 DSH 里试。**当前状态：宿主 80 条、投递 74 条、闹钟 74 条，全部通过 ✅**。
 
 ---
 
@@ -239,67 +202,58 @@ node tests\网页半边.mjs     :: 设置页渲染（假 React + 假 fetch）：
 
 ### 1. 触发消息**只能**是 `user` 角色，`developer` 送不了
 
-这是当前 DSH 版本的硬限制，不是本插件偷懒。三条证据（都是读 DSH 本体的源码读到的）：
+这是当前 DSH 版本的硬限制，不是本插件偷懒。`dsh-agent-loop` 的 `step()` 把收件箱认领到的消息
+**写死**成 `user/message`，完全不看 `message.role`；而 `dsh-session` 的 `append()` 又要求
+`user/message` 的角色必须是 `user`，写 `developer` 会直接抛错。
+（`developer` 消息在 `dsh-llm` 里也会被从发给模型的请求里摘掉，只服务于「工具清单变更」。）
 
-1. `@deepseek-ai/dsh-agent-loop/lib/index.js` 的 `step()` 里，把收件箱认领到的消息
-   **写死**成 `user/message` 事件，完全不看 `message.role`：
-   ```js
-   if (firstAttempt) for (const message of decision.messages)
-     this.session.append("user/message", message, { surfaceOp: "append" })
-   ```
-2. `@deepseek-ai/dsh-session/lib/index.js` 的 `append()` 会校验：
-   ```js
-   if (event.type === "developer/message" !== (message["role"] === "developer")) throw
-   ```
-   于是「`user/message` 事件 + `developer` 角色」会**直接抛错**，那一轮 turn 变成 `error`。
-   （`assertMessageEventShape` 同样要求 `user/message` 的角色必须是 `user`；`system` 角色也不行。）
-3. 另一个方向也堵着：`developer` 消息在 `@deepseek-ai/dsh-llm` 里会被
-   `withoutDeveloperMessages()` / `projectToolUpdates()` 从**发给模型的请求里摘掉**
-   （它只服务于「工具清单变更」这一种用途）。所以就算塞进历史，模型也看不见那句话。
-
-**本插件的处理**：送出去的是一条 `source.kind = "speak-up"` 的 **user** 消息 ——
-角色上确实是 `user`（DSH 唯一放行的），但来源标记是它自己的，不是它打的字（网页端也**不会**
-把它当成真人排队消息来处理，因为它只认 `source.kind === "user"`）。
+本插件的处理：送出去的是一条 `source.kind = "speak-up"` 的 **user** 消息 —— 角色上确实是 `user`
+（DSH 唯一放行的），但来源标记是它自己的，不是它打的字。
 设置里的「角色」填成 `developer` 时，插件会**主动拒发**并记一条，而不是去写坏会话日志。
-将来 DSH 放开了 developer，改这一处就能直接切过去。
 
-### 2. 只认**活着的** agent，不会自动唤醒冷会话
+> 0.3.0 额外给消息加了 `source.plugin = 'dsh-speak-up'`：memory-core 的 `isMachineEvent`
+> 认出带 `plugin` 的 source 就跳过，不会把这句念头当成「主人说的话」写进记忆库。
 
-DSH 自带的 `@deepseek-ai/dsh-schedule` 用的是 `ctx.sessionController.resolveAgent(id)`，
-那个会把**没活着的会话也 resume 起来**。本插件**故意不用**它：目标会话没有活着的 agent 时，
-就什么都不做、只记一条。理由是这个版本的要求就是「不活着就安全地什么都不做」，
-而且偷偷唤醒一个冷会话（可能还要花一次冷启动）比不开口更冒犯。
+### 2. 冷会话**现在会唤醒**了（这是有意改的）
 
-### 3. 设置的读写走的是本插件自己的 JSON，不是 DSH 原生「插件配置」页
+0.2.9 故意不唤醒冷会话（「不活着就什么都不做」）。0.3.0 改成用
+`ctx.sessionController.resolveAgent(sid)`：宿主在跑、会话只是冷着，就把它 resume 起来，再投念头。
+代价是**一次冷启动**的钱；会话真的不存在（`session/not-found`）时才现开一条。
 
-不是不能做，是**在这个安装位置上有风险**：插件被装进 profile 的 `node_modules`，
-而那里**没有** `@deepseek-ai/schemastery`（`profiles/<p>/node_modules/@deepseek-ai/` 下只有
-`dsh-home-paths`）。`export const Config = z.object({...})` 需要静态 import 它，
-import 一失败整个插件就加载不了。所以本版跟 `dsh-write` / `dsh-fish-memory` 一样：
-自己的 json + 自己的设置页。
-（想改成原生页：`profiles/<p>/node_modules/schemastery` 这个**同名上游包 3.18.0 是在的**，
-可以试着 `import z from 'schemastery'` 再导出 `Config`，但**没验证过** Cordis 认不认这个包身份的
-schema，改之前先备份。）
+### 3. QQ 通道依赖 aurabot
 
-### 4. 别的地方也**没验证过**
+`auto` / `qq` 通道要发 QQ 时，找的是同进程里的 `ctx.get('aurabot')` 服务
+（`dsh-aurabot-qq` 插件提供的 `ops.send`），**没有它就只能留在 DSH 会话里**，日志会写一句原因。
+发 QQ 的收件人是 **主人自己的 QQ**，不是这张卡绑定的那个号（绑定号是「她发消息用的身份」）。
 
-- `settings.section` 这个槽位名：跟 `dsh-write` / `dsh-fish-memory` 用的是同一个，
-  在这台机器上它们是跑通的；换 DSH 版本可能变。
-- 「距它上次说话」用 `ctx.sessionController.inspect(sid)` 翻一次已落盘的历史来找最后一条
-  `user/message`。会话特别长的话这一次读会有点重（一个会话只翻一次，之后靠
-  `session/event` 实时更新）。
-- `ctx.sessionController.create()` 建「小屋会话」这条路**没实际跑过**，失败会返回一句人话，
-  不会静默。
-- 掷骰子**不做持久化**：插件重启后「自己上次开口」的时间和「连着没中」都会归零。
+### 4. 闹钟不做失败重试
+
+闹钟到点投递失败时，当场推进（`none` 删、`daily` / `interval` 推到下一次），失败详情写进日志，
+**不会每分钟重试** —— 这是为了不刷屏，也是因为状态文件的白名单里没有重试字段。
+真要「连败几次才放弃」，得先给 `state.json` 加字段。
+
+### 5. 别的没验证过的地方
+
+- 设置页槽位 `settings.section` 跟 `dsh-write` / `dsh-fish-memory` 用同一个，换 DSH 版本可能变；
+- `ctx.sessionController.create()` 建会话这条路沿用 bili-whale 的写法，**失败会返回一句人话**，不会静默；
+- 「距她上次说话」优先看内存，翻历史时用 `sessionController.inspect(sid)`，超长会话会有点重；
+- 插件自己的配置不走 DSH 原生「插件配置」页（profile 的 node_modules 里没有 schemastery，静态 import 会炸），
+  这一版仍是自己的 JSON + 自己的设置页。
 
 ## 它到底做了什么（给下一个看代码的人）
 
-- `lib/host.js`（宿主半边）：配置读写 + 安静时段 + 时机因子 + **峰谷分时（时段写死）** + **没中加成/冷却** + 掷骰
-  + `agent.followup(message)` + 四条 `/dsh-speak-up/*` 路由 + 内存里最近 60 条记录。
-  另外导出了 `判峰时()` / `算基础命中线()` / `算命中线()` 三个纯函数，**只是为了冒烟测试能喂假时间、
-  能把"连着没中几次"直接喂进去**（官方 `dsh-goal-round-driver` 也这么导出 `renderGoalRoundPrompt`）。
-- `lib/client.js`（网页半边）：`settings.section` 槽位里的「主动搭话」设置页；
-  会话清单来自宿主（标题两条来源），**勾选/取消立刻自动保存**，数字/文案类改完要点「保存设置」
-  （有没保存的改动时，底下会自己浮出一条保存条）。
-- 两边**只有一份掷骰逻辑**（在宿主那边），网页只负责读写和显示。
-- `CHANGELOG.md`（[改动记录](CHANGELOG.md)）：每一次改动一行一条。**版本号规矩：每改一次 +0.0.1，末位满 10 进位。**
+| 文件 | 职责 |
+| --- | --- |
+| `lib/host.js` | 装配：迁移 → 调度器 → 工具 → 路由；`deliverRawToCard`（指定正文）/ `deliverToCardSafe`（念头）；`afterTick` 里顺带响闹钟 |
+| `lib/config.js` | 全局 / 每卡策略 / 每卡状态的读写、白名单归一化、0.2.9 旧配置迁移 |
+| `lib/cards.js` | 卡列表与「这个会话属于哪张卡」：`memoryCore` → `soul-md` settings → patch yml 三级回退 |
+| `lib/dice.js` | 纯函数：判峰时、命中线、时机因子、安静时段、下一次到点（可喂假时间） |
+| `lib/scheduler.js` | 60 秒一跳；每卡 `nextRollAt` 到点才掷；安静/冷却/日上限各卡各算；多卡 `allSettled` 并行 |
+| `lib/delivery.js` | 找会话（四级）→ 现开（先登记后建）→ `sayInSession` → 按通道等回复 / 转发 QQ；`deliverTextToCard` 给闹钟用 |
+| `lib/channels.js` | 有没有绑 QQ、`sendQQ`（收件人 = 主人）、按通道等回复 |
+| `lib/alarms.js` | 闹钟的增删查、到点判定、repeat 推进（不装 timer，由 `afterTick` 驱动） |
+| `lib/tools.js` | 注册 `speak_alarm` / `speak_send`（`ctx.tools.register` + 本地 defineTool 垫片） |
+| `lib/client.js` | 网页半边：卡片下拉、全部卡表格、单卡设置 / 通道 / 闹钟 / 日志 |
+
+两边**只有一份掷骰逻辑**（在宿主那边），网页只负责读写和显示。
+`CHANGELOG.md`（[改动记录](CHANGELOG.md)）：每一次改动一行一条。**版本号规矩：每改一次 +0.0.1，末位满 10 进位。**
